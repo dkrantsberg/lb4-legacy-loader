@@ -25,13 +25,15 @@ export class LegacyLoaderComponent implements Component {
         return path.resolve(options.directory, file);
       });
 
+    // loop over discovered api modules
     for (const serviceModulePath of serviceModulePaths) {
       const module = require(serviceModulePath);
       const routes = getRoutes(module);
 
       const controllerClassName = `${module.constructor.name}Controller`;
-      const middlewareFunctions: any = {};
-      let pathsSpecs: PathsObject = {};
+      const middlewareFunctions: any = {};  // an key-value object with keys being route handler names and values the handler function themselves
+      let pathsSpecs: PathsObject = {};  // LB4 object to add to class to specify route / handler mapping
+      // loop over routes defined in the module
       for (const route of routes) {
         const handlerName = route.httpMethod.toLowerCase() + route.path.replace('/', '_');
         middlewareFunctions[handlerName] = route.middleware;
@@ -42,6 +44,7 @@ export class LegacyLoaderComponent implements Component {
       const defineNewController = new Function('middlewareFunctions', controllerClassDefinition);
       const controllerClass = defineNewController(middlewareFunctions);
 
+      // Add metadata for mapping HTTP routes to controller class functions
       MetadataInspector.defineMetadata(
         OAI3Keys.CONTROLLER_SPEC_KEY.key,
         controllerSpecs,
@@ -49,13 +52,14 @@ export class LegacyLoaderComponent implements Component {
       );
 
       const injectionSpecs = getControllerInjectionSpecs(controllerClass);
-
+      // Add metadata for injecting HTTP Request and Response objects into controller class
       MetadataInspector.defineMetadata<MetadataMap<Readonly<Injection>[]>>(
         METHODS_KEY,
         injectionSpecs,
         controllerClass,
       );
 
+      // add controller to the LB4 application
       this.application.controller(controllerClass);
     }
   }
@@ -78,7 +82,12 @@ function getRoutes(serviceModule: any): LegacyRoute[] {
   return _.cloneDeep(routes);
 }
 
-function getControllerClassDefinition(controllerClassName: string, handlerNames: string[]) {
+/**
+ * Returns a string with controller class definition
+ * @param controllerClassName - a name to be given to controller class
+ * @param handlerNames - handler function name
+ */
+function getControllerClassDefinition(controllerClassName: string, handlerNames: string[]): string {
   let handlers = '';
   for (const handlerName of handlerNames) {
     handlers = handlers + `async ${handlerName}() {return middlewareFunctions['${handlerName}'](this.request, this.response);}\n`;
@@ -93,6 +102,13 @@ function getControllerClassDefinition(controllerClassName: string, handlerNames:
   }`;
 }
 
+/**
+ * Appends a new LB4 PathObject to PathObjects collection
+ * @param pathsObject - LB4 PathObjects collection to append new item to
+ * @param route - HTTP route for new PathObject
+ * @param controllerName - controller class name
+ * @param handlerName - handler function name to map HTTP route to
+ */
 function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string) {
   let pathObject: PathObject;
   const method = route.httpMethod.toLowerCase();
@@ -110,28 +126,33 @@ function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName
   };
 }
 
-      function getControllerInjectionSpecs(target: Object): MetadataMap<Readonly<Injection>[]> {
-        return {
-          '': [
-            {
-              target,
-              methodDescriptorOrParameterIndex: 0,
-              bindingSelector: RestBindings.Http.REQUEST,
-              metadata: {
-                decorator: '@inject'
-              }
-            },
-            {
-              target,
-              methodDescriptorOrParameterIndex: 1,
-              bindingSelector: RestBindings.Http.RESPONSE,
-              metadata: {
-                decorator: '@inject'
-              }
-            }
-          ]
-        }
-      }
+
+/**
+ * Returns LB4 MetadataMap to be used for injecting Request and Response objects to dynamically defined controller classes
+ * @param target - controller class object
+ */
+function getControllerInjectionSpecs(target: Object): MetadataMap<Readonly<Injection>[]> {
+  return {
+    '': [
+      {
+        target,
+        methodDescriptorOrParameterIndex: 0,
+        bindingSelector: RestBindings.Http.REQUEST,
+        metadata: {
+          decorator: '@inject',
+        },
+      },
+      {
+        target,
+        methodDescriptorOrParameterIndex: 1,
+        bindingSelector: RestBindings.Http.RESPONSE,
+        metadata: {
+          decorator: '@inject',
+        },
+      },
+    ],
+  };
+}
 
 interface LegacyRoute {
   path: string;
