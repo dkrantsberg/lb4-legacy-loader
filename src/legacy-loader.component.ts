@@ -4,10 +4,12 @@ import * as path from 'path';
 import * as _ from 'lodash';
 import {RestBindings, RouterSpec} from '@loopback/rest';
 import {PathObject, PathsObject} from '@loopback/openapi-v3';
-import {Request, Response} from 'express';
+import {Request, Response, NextFunction} from 'express';
 import {OAI3Keys} from '@loopback/openapi-v3/dist/keys';
 import {Injection, MetadataInspector} from '@loopback/context';
 import {MetadataAccessor, MetadataMap} from '@loopback/metadata';
+import * as async from 'async';
+import * as util from 'util';
 
 const METHODS_KEY = MetadataAccessor.create<Injection, MethodDecorator>(
   'inject:methods',
@@ -41,8 +43,8 @@ export class LegacyLoaderComponent implements Component {
       }
       const controllerSpecs: RouterSpec = {paths: pathsSpecs};
       const controllerClassDefinition = getControllerClassDefinition(controllerClassName, Object.keys(middlewareFunctions));
-      const defineNewController = new Function('middlewareFunctions', controllerClassDefinition);
-      const controllerClass = defineNewController(middlewareFunctions);
+      const defineNewController = new Function('middlewareRunner', 'middlewareFunctions', controllerClassDefinition);
+      const controllerClass = defineNewController(middlewareRunnerPromise, middlewareFunctions);
 
       // Add metadata for mapping HTTP routes to controller class functions
       MetadataInspector.defineMetadata(
@@ -64,6 +66,24 @@ export class LegacyLoaderComponent implements Component {
     }
   }
 }
+
+/**
+ * Runs middleware function or a collection of functions
+ * @param middleware middleware which can be either a single function or an array of functions
+ * @param req HTTP request object
+ * @param res HTTP response object
+ * @param cb callback function
+ */
+function middlewareRunner(middleware: any, req: Request, res: Response, cb: NextFunction) {
+  if (_.isFunction(middleware)) {
+    middleware(req, req, cb);
+  } else if (_.isArray(middleware)) {
+    // apply request and response arguments to each middleware function and run them
+    async.applyEachSeries(middleware, req, res, cb);
+  }
+}
+
+const middlewareRunnerPromise = util.promisify(middlewareRunner);
 
 /**
  * @description Retrieves the list of routes from the given module.
@@ -90,7 +110,7 @@ function getRoutes(serviceModule: any): LegacyRoute[] {
 function getControllerClassDefinition(controllerClassName: string, handlerNames: string[]): string {
   let handlers = '';
   for (const handlerName of handlerNames) {
-    handlers = handlers + `async ${handlerName}() {return middlewareFunctions['${handlerName}'](this.request, this.response);}\n`;
+    handlers = handlers + `async ${handlerName}() {return await middlewareRunner(middlewareFunctions['${handlerName}'], this.request, this.response);}\n`;
   }
   return `return class ${controllerClassName} {
     constructor(request, response) {
