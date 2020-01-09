@@ -36,6 +36,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@labshare/services-auth": "^2.1.4",
     "@loopback/boot": "^1.5.12",
     "@loopback/context": "^1.24.0",
     "@loopback/core": "^1.11.0",

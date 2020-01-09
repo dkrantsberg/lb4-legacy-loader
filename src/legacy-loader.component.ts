@@ -10,10 +10,16 @@ import {Injection, MetadataInspector} from '@loopback/context';
 import {MetadataAccessor, MetadataMap} from '@loopback/metadata';
 import * as async from 'async';
 import * as util from 'util';
+const servicesAuth = require('@labshare/services-auth');
 
 const METHODS_KEY = MetadataAccessor.create<Injection, MethodDecorator>(
   'inject:methods',
 );
+
+
+const authUrl = 'https://a.labshare.org/_api';
+const tenant = 'ls';
+const audience = 'ls-api';
 
 const options = {
   pattern: 'api/*.js',
@@ -27,11 +33,12 @@ export class LegacyLoaderComponent implements Component {
         return path.resolve(options.directory, file);
       });
 
-    // loop over discovered api modules
-    for (const serviceModulePath of serviceModulePaths) {
-      const module = require(serviceModulePath);
-      const routes = getRoutes(module);
+    const serviceRoutes = getServiceRoutes(serviceModulePaths);
+    applyAuthMiddleware(serviceRoutes);
 
+    // loop over discovered api modules
+    for (const service  in serviceRoutes) {
+      const routes = serviceRoutes[service];
       const controllerClassName = `${module.constructor.name}Controller`;
       const middlewareFunctions: any = {};  // an key-value object with keys being route handler names and values the handler function themselves
       let pathsSpecs: PathsObject = {};  // LB4 object to add to class to specify route / handler mapping
@@ -67,6 +74,20 @@ export class LegacyLoaderComponent implements Component {
   }
 }
 
+function getServiceRoutes(serviceModulePaths: string[]) {
+  return _.reduce(serviceModulePaths, (result, value, key) => {
+    const module = require(value);
+    const routes = getRoutes(module);
+    result[module.constructor.name] = routes;
+    return result;
+  }, {} as any);
+}
+
+function applyAuthMiddleware(serviceRoutes: any) {
+  const auth = servicesAuth({authUrl, tenant, audience});
+  auth({services: serviceRoutes});
+}
+
 /**
  * Runs middleware function or a collection of functions
  * @param middleware middleware which can be either a single function or an array of functions
@@ -75,12 +96,8 @@ export class LegacyLoaderComponent implements Component {
  * @param cb callback function
  */
 function middlewareRunner(middleware: any, req: Request, res: Response, cb: NextFunction) {
-  if (_.isFunction(middleware)) {
-    middleware(req, req, cb);
-  } else if (_.isArray(middleware)) {
-    // apply request and response arguments to each middleware function and run them
+    // apply request and response arguments to each middleware function and run them in sequence
     async.applyEachSeries(middleware, req, res, cb);
-  }
 }
 
 const middlewareRunnerPromise = util.promisify(middlewareRunner);
@@ -99,7 +116,14 @@ function getRoutes(serviceModule: any): LegacyRoute[] {
   let routes = serviceModule.Routes || serviceModule.routes || [];
 
   // Ensure modifications of the route properties do not mutate the original module
-  return _.cloneDeep(routes);
+  const routesCopy = _.cloneDeep(routes);
+  // Ensure that all middleware is an array rather than a function
+  for(const route of routesCopy) {
+    if(_.isFunction(route.middleware)) {
+      route.middleware = [route.middleware];
+    }
+  }
+  return routesCopy;
 }
 
 /**
