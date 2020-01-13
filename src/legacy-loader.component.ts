@@ -21,7 +21,7 @@ const audience = 'ls-api';
 
 const options = {
   pattern: 'api/*.js',
-  directory: process.cwd()
+  directory: process.cwd(),
 };
 
 export class LegacyLoaderComponent implements Component {
@@ -36,12 +36,17 @@ export class LegacyLoaderComponent implements Component {
     // loop over discovered api modules
     for (const service in serviceRoutes) {
       const routes = serviceRoutes[service];
-      const controllerClassName = `${module.constructor.name}Controller`;
+      const controllerClassName = `${service}Controller`;
       const middlewareFunctions: any = {}; // an key-value object with keys being route handler names and values the handler function themselves
       const pathsSpecs: PathsObject = {}; // LB4 object to add to class to specify route / handler mapping
       // loop over routes defined in the module
       for (const route of routes) {
-        const handlerName = route.httpMethod.toLowerCase() + route.path.replace(/\/:/g, '_').replace(/\//g, '_');
+        const handlerName =
+          route.httpMethod.toLowerCase() +
+          route.path
+            .replace(/\/:/g, '_')
+            .replace(/\//g, '_')
+            .replace('?', '');
         middlewareFunctions[handlerName] = route.middleware;
         appendPath(pathsSpecs, route, controllerClassName, handlerName);
       }
@@ -69,7 +74,20 @@ function getServiceRoutes(serviceModulePaths: string[]) {
     (result, value, key) => {
       const module = require(value);
       const routes = getRoutes(module);
-      result[module.constructor.name] = routes;
+      if (_.isEmpty(routes)) {
+        return result;
+      }
+      let serviceName;
+      if (!_.isFunction(module.constructor)) {
+        serviceName = module.constructor.name;
+      } else {
+        const matches = value.match(/[^\\\/]+(?=\.[\w]+$)|[^\\\/]+$/);
+        if (!matches) {
+          throw new Error(`Could not determine service name for module ${value}.`);
+        }
+        serviceName = _.capitalize(matches[0]);
+      }
+      result[serviceName] = routes;
       return result;
     },
     {} as any,
@@ -150,8 +168,8 @@ function getControllerClassDefinition(controllerClassName: string, handlerNames:
  * @param handlerName - handler function name to map HTTP route to
  */
 function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string) {
-  const lb4Path = route.path.replace(PATH_PARAMS_REGEX, (substring: string, ...args: any[]): string => {
-    return `/{${_.trimStart(substring, '/:')}}`;
+  const lb4Path = route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
+    return `/{${_.trimStart(substring.replace('?', ''), '/:')}}`;
   });
   let pathObject: PathObject;
   const method = route.httpMethod.toLowerCase();
@@ -181,13 +199,17 @@ function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName
 function getPathParams(routePath: string): ParameterObject[] {
   const matches = routePath.match(PATH_PARAMS_REGEX);
   return _.map(matches, match => {
+    let required = true;
+    if (match.endsWith('?')) {
+      required = false;
+    }
     return {
-      name: _.trimStart(match, ':/'),
+      name: _.trimStart(match.replace('?', ''), ':/'),
       in: 'path' as ParameterLocation,
       schema: {
         type: 'string',
       },
-      required: true,
+      required,
     };
   });
 }
