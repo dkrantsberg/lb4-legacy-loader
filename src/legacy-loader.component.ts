@@ -21,7 +21,7 @@ const audience = 'ls-api';
 
 const options = {
   pattern: 'api/*.js',
-  directory: process.cwd() + '/dist',
+  directory: process.cwd()
 };
 
 export class LegacyLoaderComponent implements Component {
@@ -41,7 +41,7 @@ export class LegacyLoaderComponent implements Component {
       const pathsSpecs: PathsObject = {}; // LB4 object to add to class to specify route / handler mapping
       // loop over routes defined in the module
       for (const route of routes) {
-        const handlerName = route.httpMethod.toLowerCase() + route.path.replace('/:', '_').replace('/', '_');
+        const handlerName = route.httpMethod.toLowerCase() + route.path.replace(/\/:/g, '_').replace(/\//g, '_');
         middlewareFunctions[handlerName] = route.middleware;
         appendPath(pathsSpecs, route, controllerClassName, handlerName);
       }
