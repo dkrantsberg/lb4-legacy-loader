@@ -48,7 +48,7 @@ export class LegacyLoaderComponent implements Component {
             .replace(/\//g, '_')
             .replace('?', '');
         middlewareFunctions[handlerName] = route.middleware;
-        appendPath(pathsSpecs, route, controllerClassName, handlerName);
+        appendPath(pathsSpecs, route, controllerClassName, handlerName, service.toLowerCase());
       }
       const controllerSpecs: RouterSpec = {paths: pathsSpecs};
       const controllerClassDefinition = getControllerClassDefinition(controllerClassName, Object.keys(middlewareFunctions));
@@ -167,8 +167,8 @@ function getControllerClassDefinition(controllerClassName: string, handlerNames:
  * @param controllerName - controller class name
  * @param handlerName - handler function name to map HTTP route to
  */
-function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string) {
-  const lb4Path = route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
+function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string, serviceName: string) {
+  const lb4Path = `/${serviceName}` + route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
     return `/{${_.trimStart(substring.replace('?', ''), '/:')}}`;
   });
   let pathObject: PathObject;
