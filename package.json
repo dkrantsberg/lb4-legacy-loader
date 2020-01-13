@@ -1,5 +1,5 @@
 {
-  "name": "@loopback/example-todo-list",
+  "name": "@labshare/lb4-legacy-loader",
   "version": "1.12.1",
   "description": "Continuation of the todo example using relations in LoopBack 4.",
   "main": "index.js",

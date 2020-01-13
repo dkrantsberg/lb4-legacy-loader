@@ -4,16 +4,7 @@
 // License text available at https://opensource.org/licenses/MIT
 
 import {Context, inject} from '@loopback/context';
-import {
-  FindRoute,
-  InvokeMethod,
-  ParseParams,
-  Reject,
-  RequestContext,
-  RestBindings,
-  Send,
-  SequenceHandler,
-} from '@loopback/rest';
+import {FindRoute, InvokeMethod, ParseParams, Reject, RequestContext, RestBindings, Send, SequenceHandler} from '@loopback/rest';
 
 const SequenceActions = RestBindings.SequenceActions;
 
@@ -31,6 +22,7 @@ export class MySequence implements SequenceHandler {
     try {
       const {request, response} = context;
       const route = this.findRoute(request);
+      request.params = route.pathParams;
       const args = await this.parseParams(request, route);
       const result = await this.invoke(route, args);
       this.send(response, result);

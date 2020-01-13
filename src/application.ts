@@ -10,11 +10,9 @@ import {RepositoryMixin} from '@loopback/repository';
 import {RestApplication} from '@loopback/rest';
 import * as path from 'path';
 import {MySequence} from './sequence';
-import {LegacyLoaderComponent} from './legacy-loader.component'
+import {LegacyLoaderComponent} from './legacy-loader.component';
 
-export class LegacyApiLoaderApplication extends BootMixin(
-  RepositoryMixin(RestApplication),
-) {
+export class LegacyApiLoaderApplication extends BootMixin(RepositoryMixin(RestApplication)) {
   constructor(options: ApplicationConfig = {}) {
     super(options);
 
@@ -37,6 +35,6 @@ export class LegacyApiLoaderApplication extends BootMixin(
       },
     };
 
-   this.component(LegacyLoaderComponent);
+    this.component(LegacyLoaderComponent);
   }
 }
