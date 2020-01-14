@@ -30,7 +30,6 @@ export class LegacyLoaderComponent implements Component {
   }
 }
 
-
 function mountLegacyApiDirectory(application: Application, directory: string) {
   const serviceModulePaths = glob.sync(options.pattern, {cwd: directory}).map(file => {
     return path.resolve(options.directory, file);
@@ -60,7 +59,12 @@ function mountLegacyApiDirectory(application: Application, directory: string) {
           .replace(/\//g, '_')
           .replace('?', '');
       middlewareFunctions[handlerName] = route.middleware;
-      appendPath(pathsSpecs, route, controllerClassName, handlerName, packageName);
+      if (packageName === 'facility') {
+        route.path = `/:facilityId/${packageName}${route.path}`;
+      } else {
+        route.path = `/${packageName}${route.path}`;
+      }
+      appendPath(pathsSpecs, route, controllerClassName, handlerName);
     }
     const controllerSpecs: RouterSpec = {paths: pathsSpecs};
     const controllerClassDefinition = getControllerClassDefinition(controllerClassName, Object.keys(middlewareFunctions));
@@ -77,9 +81,7 @@ function mountLegacyApiDirectory(application: Application, directory: string) {
     // add controller to the LB4 application
     application.controller(controllerClass);
   }
-
 }
-
 
 function applyAuthMiddleware(serviceRoutes: any) {
   const auth = servicesAuth({authUrl, tenant, audience});
@@ -125,7 +127,6 @@ function getServiceRoutes(serviceModulePaths: string[]) {
     {} as any,
   );
 }
-
 
 /**
  * @description Retrieves the list of routes from the given module.
@@ -182,9 +183,8 @@ function getControllerClassDefinition(controllerClassName: string, handlerNames:
  * @param handlerName - handler function name to map HTTP route to
  * @param packageName - package name which should prefix routes
  */
-function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string, packageName: string) {
-  const prefixPath = packageName === 'facility' ? '/:facilityId' : '';
-  const lb4Path = `${prefixPath}/${packageName}` + route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
+function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string) {
+  const lb4Path = route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
     return `/{${_.trimStart(substring.replace('?', ''), '/:')}}`;
   });
   let pathObject: PathObject;
@@ -256,7 +256,6 @@ function getControllerInjectionSpecs(target: Object): MetadataMap<Readonly<Injec
     ],
   };
 }
-
 
 function getPackageManifest(directory: string) {
   const manifestPath = path.resolve(directory, 'package.json');
