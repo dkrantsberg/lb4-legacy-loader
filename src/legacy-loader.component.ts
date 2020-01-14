@@ -26,47 +26,79 @@ const options = {
 
 export class LegacyLoaderComponent implements Component {
   constructor(@inject(CoreBindings.APPLICATION_INSTANCE) private application: Application) {
-    const serviceModulePaths = glob.sync(options.pattern, {cwd: options.directory}).map(file => {
-      return path.resolve(options.directory, file);
-    });
-
-    const serviceRoutes = getServiceRoutes(serviceModulePaths);
-    applyAuthMiddleware(serviceRoutes);
-
-    // loop over discovered api modules
-    for (const service in serviceRoutes) {
-      const routes = serviceRoutes[service];
-      const controllerClassName = `${service}Controller`;
-      const middlewareFunctions: any = {}; // an key-value object with keys being route handler names and values the handler function themselves
-      const pathsSpecs: PathsObject = {}; // LB4 object to add to class to specify route / handler mapping
-      // loop over routes defined in the module
-      for (const route of routes) {
-        const handlerName =
-          route.httpMethod.toLowerCase() +
-          route.path
-            .replace(/\/:/g, '_')
-            .replace(/\//g, '_')
-            .replace('?', '');
-        middlewareFunctions[handlerName] = route.middleware;
-        appendPath(pathsSpecs, route, controllerClassName, handlerName, service.toLowerCase());
-      }
-      const controllerSpecs: RouterSpec = {paths: pathsSpecs};
-      const controllerClassDefinition = getControllerClassDefinition(controllerClassName, Object.keys(middlewareFunctions));
-      const defineNewController = new Function('middlewareRunner', 'middlewareFunctions', controllerClassDefinition);
-      const controllerClass = defineNewController(middlewareRunnerPromise, middlewareFunctions);
-
-      // Add metadata for mapping HTTP routes to controller class functions
-      MetadataInspector.defineMetadata(OAI3Keys.CONTROLLER_SPEC_KEY.key, controllerSpecs, controllerClass);
-
-      const injectionSpecs = getControllerInjectionSpecs(controllerClass);
-      // Add metadata for injecting HTTP Request and Response objects into controller class
-      MetadataInspector.defineMetadata<MetadataMap<Readonly<Injection>[]>>(METHODS_KEY, injectionSpecs, controllerClass);
-
-      // add controller to the LB4 application
-      this.application.controller(controllerClass);
-    }
+    mountLegacyApiDirectory(this.application, options.directory);
   }
 }
+
+
+function mountLegacyApiDirectory(application: Application, directory: string) {
+  const serviceModulePaths = glob.sync(options.pattern, {cwd: directory}).map(file => {
+    return path.resolve(options.directory, file);
+  });
+
+  const manifest = getPackageManifest(directory);
+  if (!manifest) {
+    return;
+  }
+  const packageName = getPackageName(manifest);
+
+  const serviceRoutes = getServiceRoutes(serviceModulePaths);
+  applyAuthMiddleware(serviceRoutes);
+
+  // loop over discovered api modules
+  for (const service in serviceRoutes) {
+    const routes = serviceRoutes[service];
+    const controllerClassName = `${service}Controller`;
+    const middlewareFunctions: any = {}; // an key-value object with keys being route handler names and values the handler function themselves
+    const pathsSpecs: PathsObject = {}; // LB4 object to add to class to specify route / handler mapping
+    // loop over routes defined in the module
+    for (const route of routes) {
+      const handlerName =
+        route.httpMethod.toLowerCase() +
+        route.path
+          .replace(/\/:/g, '_')
+          .replace(/\//g, '_')
+          .replace('?', '');
+      middlewareFunctions[handlerName] = route.middleware;
+      appendPath(pathsSpecs, route, controllerClassName, handlerName, packageName);
+    }
+    const controllerSpecs: RouterSpec = {paths: pathsSpecs};
+    const controllerClassDefinition = getControllerClassDefinition(controllerClassName, Object.keys(middlewareFunctions));
+    const defineNewController = new Function('middlewareRunner', 'middlewareFunctions', controllerClassDefinition);
+    const controllerClass = defineNewController(middlewareRunnerPromise, middlewareFunctions);
+
+    // Add metadata for mapping HTTP routes to controller class functions
+    MetadataInspector.defineMetadata(OAI3Keys.CONTROLLER_SPEC_KEY.key, controllerSpecs, controllerClass);
+
+    const injectionSpecs = getControllerInjectionSpecs(controllerClass);
+    // Add metadata for injecting HTTP Request and Response objects into controller class
+    MetadataInspector.defineMetadata<MetadataMap<Readonly<Injection>[]>>(METHODS_KEY, injectionSpecs, controllerClass);
+
+    // add controller to the LB4 application
+    application.controller(controllerClass);
+  }
+
+}
+
+
+function applyAuthMiddleware(serviceRoutes: any) {
+  const auth = servicesAuth({authUrl, tenant, audience});
+  auth({services: serviceRoutes});
+}
+
+/**
+ * Runs middleware function or a collection of functions
+ * @param middleware middleware which can be either a single function or an array of functions
+ * @param req HTTP request object
+ * @param res HTTP response object
+ * @param cb callback function
+ */
+function middlewareRunner(middleware: any, req: Request, res: Response, cb: NextFunction) {
+  // apply request and response arguments to each middleware function and run them in sequence
+  async.applyEachSeries(middleware, req, res, cb);
+}
+
+const middlewareRunnerPromise = util.promisify(middlewareRunner);
 
 function getServiceRoutes(serviceModulePaths: string[]) {
   return _.reduce(
@@ -94,24 +126,6 @@ function getServiceRoutes(serviceModulePaths: string[]) {
   );
 }
 
-function applyAuthMiddleware(serviceRoutes: any) {
-  const auth = servicesAuth({authUrl, tenant, audience});
-  auth({services: serviceRoutes});
-}
-
-/**
- * Runs middleware function or a collection of functions
- * @param middleware middleware which can be either a single function or an array of functions
- * @param req HTTP request object
- * @param res HTTP response object
- * @param cb callback function
- */
-function middlewareRunner(middleware: any, req: Request, res: Response, cb: NextFunction) {
-  // apply request and response arguments to each middleware function and run them in sequence
-  async.applyEachSeries(middleware, req, res, cb);
-}
-
-const middlewareRunnerPromise = util.promisify(middlewareRunner);
 
 /**
  * @description Retrieves the list of routes from the given module.
@@ -166,9 +180,11 @@ function getControllerClassDefinition(controllerClassName: string, handlerNames:
  * @param route - HTTP route for new PathObject
  * @param controllerName - controller class name
  * @param handlerName - handler function name to map HTTP route to
+ * @param packageName - package name which should prefix routes
  */
-function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string, serviceName: string) {
-  const lb4Path = `/${serviceName}` + route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
+function appendPath(pathsObject: PathsObject, route: LegacyRoute, controllerName: string, handlerName: string, packageName: string) {
+  const prefixPath = packageName === 'facility' ? '/:facilityId' : '';
+  const lb4Path = `${prefixPath}/${packageName}` + route.path.replace(PATH_PARAMS_REGEX, (substring: string): string => {
     return `/{${_.trimStart(substring.replace('?', ''), '/:')}}`;
   });
   let pathObject: PathObject;
@@ -239,6 +255,27 @@ function getControllerInjectionSpecs(target: Object): MetadataMap<Readonly<Injec
       },
     ],
   };
+}
+
+
+function getPackageManifest(directory: string) {
+  const manifestPath = path.resolve(directory, 'package.json');
+  const manifest = require(manifestPath);
+
+  if (!manifest) {
+    return null;
+  } else if (!getPackageName(manifest)) {
+    throw new Error(manifestPath + ' is missing a `name` property');
+  }
+
+  return manifest;
+}
+
+function getPackageName(manifest: any) {
+  if (!manifest || !(manifest.namespace || manifest.name)) {
+    return null;
+  }
+  return (manifest.namespace || manifest.name).toLowerCase();
 }
 
 interface LegacyRoute {
