@@ -10,6 +10,8 @@ import {Injection, MetadataInspector} from '@loopback/context';
 import {MetadataAccessor, MetadataMap} from '@loopback/metadata';
 import * as async from 'async';
 import * as util from 'util';
+import * as resolve from 'resolve-pkg';
+
 const servicesAuth = require('@labshare/services-auth');
 
 const METHODS_KEY = MetadataAccessor.create<Injection, MethodDecorator>('inject:methods');
@@ -26,7 +28,20 @@ const options = {
 
 export class LegacyLoaderComponent implements Component {
   constructor(@inject(CoreBindings.APPLICATION_INSTANCE) private application: Application) {
+    const manifest = getPackageManifest(options.directory);
+    const packageDependencies = getPackageDependencies(manifest);
+
+    // mount legacy API routes from the current module
     mountLegacyApiDirectory(this.application, options.directory);
+
+    // mount legacy API routes from package dependencies
+    for (const dependency of packageDependencies) {
+      const dependencyPath = resolve(dependency, {cwd: options.directory});
+      if (!dependencyPath) {
+        throw new Error(`Dependency: "${dependency}" required by "${options.directory}" could not be found. Is it installed?`);
+      }
+      mountLegacyApiDirectory(this.application, dependencyPath);
+    }
   }
 }
 
@@ -275,6 +290,18 @@ function getPackageName(manifest: any) {
     return null;
   }
   return (manifest.namespace || manifest.name).toLowerCase();
+}
+
+/**
+ * @param manifest - A parsed LabShare package package.json file
+ * @returns {Array} A list of LabShare package dependencies or an empty array
+ */
+function getPackageDependencies(manifest: any) {
+  const dependencies = _.get(manifest, 'packageDependencies', []);
+  if (_.isArray(dependencies)) {
+    return dependencies;
+  }
+  return Object.keys(manifest.packageDependencies);
 }
 
 interface LegacyRoute {
