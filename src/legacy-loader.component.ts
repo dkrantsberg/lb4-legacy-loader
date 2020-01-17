@@ -47,7 +47,7 @@ export class LegacyLoaderComponent implements Component {
 
 function mountLegacyApiDirectory(application: Application, directory: string) {
   const serviceModulePaths = glob.sync(options.pattern, {cwd: directory}).map(file => {
-    return path.resolve(options.directory, file);
+    return path.resolve(directory, file);
   });
 
   const manifest = getPackageManifest(directory);
