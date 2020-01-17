@@ -11,6 +11,8 @@ import {RestApplication} from '@loopback/rest';
 import * as path from 'path';
 import {MySequence} from './sequence';
 import {LegacyLoaderComponent} from './legacy-loader.component';
+import {HealthComponent} from '@labshare/services-health';
+
 
 export class LegacyApiLoaderApplication extends BootMixin(RepositoryMixin(RestApplication)) {
   constructor(options: ApplicationConfig = {}) {
@@ -34,7 +36,7 @@ export class LegacyApiLoaderApplication extends BootMixin(RepositoryMixin(RestAp
         nested: true,
       },
     };
-
+    this.component(HealthComponent);
     this.component(LegacyLoaderComponent);
   }
 }
